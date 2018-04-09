@@ -1,18 +1,14 @@
 package edu.rit.ad8454.capstonerit;
 
 import android.app.Activity;
-import android.content.ContentValues;
 import android.graphics.PixelFormat;
 import android.opengl.GLSurfaceView;
 import android.os.Bundle;
-import android.os.Environment;
-import android.provider.MediaStore;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MotionEvent;
 import android.view.SurfaceView;
 import android.view.WindowManager;
-import android.widget.Toast;
 
 import org.opencv.android.BaseLoaderCallback;
 import org.opencv.android.CameraBridgeViewBase;
@@ -23,13 +19,9 @@ import org.opencv.android.OpenCVLoader;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.core.Point;
-import org.opencv.core.Scalar;
 import org.opencv.core.Size;
-import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
 
-import java.io.File;
-import java.util.ArrayList;
 import java.util.List;
 
 import edu.rit.ad8454.capstonerit.Graphics.CVDraw;
@@ -41,12 +33,11 @@ public class CameraActivity extends Activity implements CvCameraViewListener2{
 
     private static final String TAG = "CameraActivity";
     private JavaCameraView mOpenCvCameraView;
+    //private Sensors sensors;
     private int camDim[] = {640, 480};          // TODO: higher resolution
     private Mat imgFrame;
-    private Mat imgFrameBlur;
     private Tracker tracker;
     private CVDraw cvDraw;
-    private boolean skipFrame = false;
     private List <Point> boxCorners;
     //private GLRenderer myGLRenderer;
     //private float offsetFactX, offsetFactY;
@@ -76,38 +67,38 @@ public class CameraActivity extends Activity implements CvCameraViewListener2{
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
-        setContentView(R.layout.activity_main);
+        setContentView(R.layout.activity_camera_view);
 
         mOpenCvCameraView = (JavaCameraView) findViewById(R.id.opencv_camera_view);
         mOpenCvCameraView.setVisibility(SurfaceView.VISIBLE);
         mOpenCvCameraView.setCvCameraViewListener(this);
         mOpenCvCameraView.setMaxFrameSize(camDim[0], camDim[1]);
 
-        // set up OpenGL view
-        /*
+        //sensors = new Sensors(this, getWindowManager());
+
+        /*/ set up OpenGL view
         GLSurfaceView myGLView = new GLSurfaceView(this);
         myGLView.setEGLConfigChooser(8, 8, 8, 8, 16, 0);
         myGLView.getHolder().setFormat(PixelFormat.TRANSLUCENT);
-        //myGLRenderer = new GLRenderer();
-        //myGLView.setRenderer(myGLRenderer);
+        myGLRenderer = new GLRenderer(sensors);
+        myGLView.setRenderer(myGLRenderer);
         addContentView(myGLView, new WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.WRAP_CONTENT));
         myGLView.setZOrderMediaOverlay(true);
-        //myGLRenderer.setVidDim(camDim[0], camDim[1]);
         */
     }
 
     @Override
-    public void onPause()
-    {
+    public void onPause() {
         super.onPause();
         if (mOpenCvCameraView != null)
             mOpenCvCameraView.disableView();
+
+        //sensors.stopListener();
     }
 
     @Override
-    public void onResume()
-    {
+    public void onResume() {
         super.onResume();
         if (!OpenCVLoader.initDebug()) {
             Log.d(TAG, "Internal OpenCV library not found. Using OpenCV Manager for initialization");
@@ -116,6 +107,7 @@ public class CameraActivity extends Activity implements CvCameraViewListener2{
             Log.d(TAG, "OpenCV library found inside package. Using it!");
             mLoaderCallback.onManagerConnected(LoaderCallbackInterface.SUCCESS);
         }
+        //sensors.startListener();
     }
 
     @Override
@@ -131,7 +123,6 @@ public class CameraActivity extends Activity implements CvCameraViewListener2{
 
     public void onCameraViewStarted(int width, int height) {
         imgFrame = new Mat(height, width, CvType.CV_8UC1);
-        imgFrameBlur = new Mat(height, width, CvType.CV_8UC1);
         tracker = new Tracker();
         cvDraw = new CVDraw();
     }
@@ -140,30 +131,30 @@ public class CameraActivity extends Activity implements CvCameraViewListener2{
     }
 
     public Mat onCameraFrame(CameraBridgeViewBase.CvCameraViewFrame inputFrame) {
+
         imgFrame = inputFrame.gray();
 
         if(!tracker.hasReferenceFeatures) {
             return inputFrame.rgba();
         }
 
-        if(skipFrame) {
-            imgFrame = inputFrame.rgba();
-            cvDraw.drawCube(imgFrame, boxCorners);
-        }
-
-        imgFrameBlur = imgFrame.clone();
+        //imgFrameBlur = imgFrame.clone();
         //Imgproc.GaussianBlur(imgFrameBlur, imgFrameBlur, new Size(5, 5), 3);
-        if (! tracker.computePerspectiveCorners(imgFrameBlur)) {
+        if (! tracker.computePerspectiveCorners(imgFrame)) {
             return inputFrame.rgba();
         }
 
         imgFrame = inputFrame.rgba();
         boxCorners = tracker.getProjectedPoints();
-        Log.e("hang", "drawCube");
-        cvDraw.drawCube(imgFrame, boxCorners);
-        Log.e("hang", "done");
 
-        skipFrame = !skipFrame;
+        //float[] pose = tracker.getPoseMatrix();
+        //myGLRenderer.setPoseMatrix(pose);
+        //myGLRenderer.setRenderCube(true);
+
+
+        cvDraw.drawCube(imgFrame, boxCorners);
+        //cvDraw.drawBorder(imgFrame, tracker.getPerspectiveCornersMat(), new Scalar(0, 0, 255));
+
         return imgFrame;
     }
 

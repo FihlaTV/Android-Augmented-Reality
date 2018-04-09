@@ -13,7 +13,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         tools:context="com.example.ajinkya.cvisionapp.MainActivity"
-        tools:showIn="@layout/activity_main">
+        tools:showIn="@layout/activity_camera_view">
 
         <org.opencv.android.JavaCameraView
             android:layout_width="fill_parent"

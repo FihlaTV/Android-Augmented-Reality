@@ -67,13 +67,14 @@ class Cube {
     }
 
     void draw(GL10 gl) {
+        gl.glEnableClientState(GL10.GL_VERTEX_ARRAY);
+        gl.glEnableClientState(GL10.GL_COLOR_ARRAY);
+
+        gl.glEnable(GL10.GL_CULL_FACE);
         gl.glFrontFace(GL10.GL_CW);
 
         gl.glVertexPointer(3, GL10.GL_FLOAT, 0, mVertexBuffer);
         gl.glColorPointer(4, GL10.GL_FLOAT, 0, mColorBuffer);
-
-        gl.glEnableClientState(GL10.GL_VERTEX_ARRAY);
-        gl.glEnableClientState(GL10.GL_COLOR_ARRAY);
 
         gl.glDrawElements(GL10.GL_TRIANGLES, 36, GL10.GL_UNSIGNED_BYTE,
                 mIndexBuffer);

@@ -17,6 +17,7 @@ import org.opencv.core.Point;
 import org.opencv.core.Point3;
 import org.opencv.core.Rect;
 import org.opencv.core.Rect2d;
+import org.opencv.core.Scalar;
 import org.opencv.core.Size;
 import org.opencv.features2d.BFMatcher;
 import org.opencv.features2d.DescriptorExtractor;
@@ -43,6 +44,7 @@ public class Tracker {
     private final int MIN_MATCH_NUM = 180;
     private final MatOfDouble CALIB_MAT = new MatOfDouble();
     private final MatOfDouble DIST = new MatOfDouble(0.262383, -0.953104, -0.005358, 0.002628, 1.163314);
+    private Size refSize;
 
     private ORB orb;        // try others
     private FlannBasedMatcher flann;
@@ -63,7 +65,7 @@ public class Tracker {
     private MatOfPoint2f perspectiveCornersMatOfPoint2f;
     private Mat perspectiveCornersMat = new Mat();
     private MatOfPoint2f projectedPoints = new MatOfPoint2f();
-    private MatOfPoint projectedPointsForConvexTest = new MatOfPoint();
+    private MatOfPoint tempMat = new MatOfPoint();
     private Mat mask = new Mat();
     private Mat homography;         // check if needs to be released
     private MatOfDouble rvec = new MatOfDouble();
@@ -92,13 +94,14 @@ public class Tracker {
     }
 
     void setReferenceFeatures(Mat refImage) {
+        refSize = refImage.size();
         orb.detectAndCompute(refImage, mask, refKeyPoints, refDescriptors);
-        setRefImageCorners(refImage.size());
-        setAxisCorners(refImage.size());
+        setRefImageCorners();
+        setAxisCorners();
         hasReferenceFeatures = true;
     }
 
-    private void setRefImageCorners(Size refSize) {
+    private void setRefImageCorners() {
         refImageCornersMat2D.put(0, 0, new double[] {0, 0});
         refImageCornersMat2D.put(1, 0, new double[] {refSize.width, 0});
         refImageCornersMat2D.put(2, 0, new double[] {refSize.width, refSize.height});
@@ -115,7 +118,7 @@ public class Tracker {
     /**
      * Assumes landscape. So width > height
      */
-    private void setAxisCorners(Size refSize) {
+    private void setAxisCorners() {
         double offset = (refSize.width - refSize.height) / 2;
         double oneThird = refSize.height / 3;
 
@@ -136,42 +139,93 @@ public class Tracker {
         );
     }
 
+    private void setMask() {
+        mask.release();
+        mask = new Mat(refSize, CvType.CV_8UC1, new Scalar(0.0));
+
+        perspectiveCornersMatOfPoint2f = new MatOfPoint2f(perspectiveCornersMat);
+
+        double[] data = perspectiveCornersMatOfPoint2f.get(0, 0);
+        data[0] = data[0] - 10 < 0 ? 0 : data[0] - 10;
+        data[1] = data[1] - 10 < 0 ? 0 : data[1] - 10;
+        perspectiveCornersMatOfPoint2f.put(0, 0, data);
+
+        data = perspectiveCornersMatOfPoint2f.get(1, 0);
+        data[0] = data[0] + 10 > refSize.width - 1 ? refSize.width - 1 : data[0] + 10;
+        data[1] = data[1] - 10 < 0 ? 0 : data[1] - 10;
+        perspectiveCornersMatOfPoint2f.put(1, 0, data);
+
+        data = perspectiveCornersMatOfPoint2f.get(2, 0);
+        data[0] = data[0] + 10 > refSize.width - 1 ? refSize.width - 1 : data[0] + 10;
+        data[1] = data[1] + 10 > refSize.height - 1 ? refSize.height - 1 : data[1] + 10;
+        perspectiveCornersMatOfPoint2f.put(2, 0, data);
+
+        data = perspectiveCornersMatOfPoint2f.get(3, 0);
+        data[0] = data[0] - 10 < 0 ? 0 : data[0] - 10;
+        data[1] = data[1] + 10 > refSize.height - 1 ? refSize.height - 1 : data[1] + 10;
+
+        Imgproc.approxPolyDP(perspectiveCornersMatOfPoint2f, perspectiveCornersMatOfPoint2f, 1.0, true);
+        tempMat.fromList(perspectiveCornersMatOfPoint2f.toList());
+        Imgproc.fillConvexPoly(mask, tempMat, new Scalar(255.0));
+
+        tempMat.release();
+        perspectiveCornersMatOfPoint2f.release();
+    }
+
+    public Mat getMask() {
+        return mask;
+    }
+
+    Point[] getPerspectiveCornersMat() {
+        perspectiveCornersMatOfPoint2f = new MatOfPoint2f(perspectiveCornersMat);
+        Point[] arr = perspectiveCornersMatOfPoint2f.toArray();
+        perspectiveCornersMatOfPoint2f.release();
+        return arr;
+    }
+
     boolean computePerspectiveCorners(Mat targetImage) {
-        Log.e("hang", "detectAndCompute");
         orb.detectAndCompute(targetImage, mask, targetKeyPoints, targetDescriptors);
-        Log.e("hang", "match");
         bfMatcher.match(targetDescriptors, refDescriptors, matches);    // method signature is opposite for Python!
 
-        Log.e("hang", "isMatched");
         boolean isMatched = setMatchingKeyPoints();
         if (!isMatched) {
+            mask.release();
             return false;
         }
 
-        Log.e("hang", "homography");
         homography = Calib3d.findHomography(matchedRefKeyPoints, matchedTargetKeyPoints, Calib3d.RANSAC, 5.0);
-        Log.e("hang", "perspectiveTransform");
         Core.perspectiveTransform(refImageCornersMat2D, perspectiveCornersMat, homography);
+
+        setMask();
 
         return true;
     }
 
     List<Point> getProjectedPoints() {
         perspectiveCornersMatOfPoint2f = new MatOfPoint2f(perspectiveCornersMat);
-        Log.e("hang", "solvePnP");
+
+//        tempMat.fromList(perspectiveCornersMatOfPoint2f.toList());
+//        if(!Imgproc.isContourConvex(tempMat)){
+//            Log.e("hang", "NULL");
+//            //return null;
+//        }
+
+
         Calib3d.solvePnP(refImageCornersMat3D, perspectiveCornersMatOfPoint2f, CALIB_MAT, DIST, rvec, tvec);
-        Log.e("hang", "projectPoints");
         Calib3d.projectPoints(graphicsAxisCornersMat3D, rvec, tvec, CALIB_MAT, DIST, projectedPoints);
 
         perspectiveCornersMatOfPoint2f.release();
-        projectedPointsForConvexTest.fromList(projectedPoints.toList().subList(0, 4));
-        if(!Imgproc.isContourConvex(projectedPointsForConvexTest)){
-            return null;
-        }
-        projectedPointsForConvexTest.fromList(projectedPoints.toList().subList(4, 8));
-        if(!Imgproc.isContourConvex(projectedPointsForConvexTest)){
-            return null;
-        }
+//        tempMat.fromList(projectedPoints.toList().subList(0, 4));
+//        if(!Imgproc.isContourConvex(tempMat)){
+//            Log.e("hang", "NULL");
+//            //return null;
+//        }
+//        tempMat.fromList(projectedPoints.toList().subList(4, 8));
+//        if(!Imgproc.isContourConvex(tempMat)){
+//            Log.e("hang", "NULL");
+//            //return null;
+//        }
+
         return projectedPoints.toList();
     }
 
@@ -193,7 +247,7 @@ public class Tracker {
         poseMatrix[11] = 0f;
         poseMatrix[12] = (float)tvec.get(0, 0)[0];
         poseMatrix[13] = -(float)tvec.get(1, 0)[0];
-        poseMatrix[14] = -(float)tvec.get(2, 0)[0];
+        poseMatrix[14] = 0f;//-(float)tvec.get(2, 0)[0];
         poseMatrix[15] = 1f;
 
         return poseMatrix;
@@ -202,7 +256,6 @@ public class Tracker {
     private boolean setMatchingKeyPoints() {
         List<DMatch> matchesAsList = matches.toList();
 
-        Log.e("isMatched", matchesAsList.size()+"");
         if(matchesAsList.size() < MIN_MATCH_NUM){
             return false;
         }
